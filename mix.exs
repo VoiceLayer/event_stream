@@ -1,14 +1,17 @@
 defmodule EventStream.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+
   def project do
     [
       app: :event_stream,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       package: package(),
       deps: deps(),
+      docs: docs(),
       source_url: "https://github.com/VoiceLayer/event_stream",
       homepage: "https://github.com/VoiceLayer/event_stream"
     ]
@@ -36,4 +39,11 @@ defmodule EventStream.MixProject do
       links: %{"GitHub" => "https://github.com/VoiceLayer/event_stream"}
     ]
   end
+
+  defp docs() do
+    [
+   source_ref: "v#{@version}"
+   ]
+  end
+
 end
