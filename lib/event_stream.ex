@@ -6,7 +6,7 @@ defmodule EventStream do
   """
 
   @doc """
-  Encode a payload and headers to EventStream format.
+  Encode a payload and headers to Event Stream format.
 
   ## Examples
 
@@ -50,7 +50,7 @@ defmodule EventStream do
   end
 
   @doc """
-  Encode a payload and headers to EventStream format.
+  Decode a payload and headers from Event Stream format.
 
   ## Examples
 
