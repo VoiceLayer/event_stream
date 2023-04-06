@@ -1,4 +1,8 @@
 defmodule EventStream do
+  @type header_value_type :: pos_integer()
+  @type header :: {binary(), any()} | {binary(), any(), header_value_type()}
+  @type headers :: [header]
+
   @moduledoc """
   Module for encoding to and decoding from the AWS EventStream Encoding format.
 
@@ -6,7 +10,8 @@ defmodule EventStream do
   """
 
   @doc """
-  Encode a payload and headers to Event Stream format.
+  Encode a payload and headers to Event Stream format. Allows to specify
+  the header value type.
 
   ## Examples
 
@@ -21,12 +26,13 @@ defmodule EventStream do
       105, 111, 110, 47, 106, 115, 111, 110, 123, 34, 102, 111, 111, 34, 58, 32, 34,
       98, 97, 114, 34, 125, 111, 162, 191, 59>>
   """
+  @spec encode!(binary(), headers()) :: binary()
   def encode!(payload, headers \\ []) do
     headers_binary =
-      Enum.reduce(headers, <<>>, fn {key, value}, acc ->
+      Enum.reduce(headers, <<>>, fn header, acc ->
+        {key, value, type} = inject_header_value_type(header)
         key = to_string(key)
-
-        acc <> <<String.length(key)::size(8)>> <> key <> encode_header_value(value)
+        acc <> <<String.length(key)::size(8)>> <> key <> encode_header_value(value, type)
       end)
 
     header_length = byte_size(headers_binary)
@@ -41,12 +47,29 @@ defmodule EventStream do
     message_without_crc <> <<message_crc::size(32)>>
   end
 
-  defp encode_header_value(value) when is_number(value) do
-    <<4::size(8), value::size(32)>>
+  defp inject_header_value_type(header = {_, _, _}), do: header
+
+  defp inject_header_value_type({key, value}) do
+    type =
+      cond do
+        is_number(value) -> 4
+        true -> 7
+      end
+
+    {key, value, type}
   end
 
-  defp encode_header_value(value) when is_binary(value) do
-    <<7::size(8), byte_size(value)::size(16)>> <> value
+  # https://docs.aws.amazon.com/transcribe/latest/dg/streaming-setting-up.html#streaming-event-stream
+  # Docs say that "Value string byte length: The byte length of the header value string".
+  # The explicit type for strings is 7, but specifying the length is required also for these
+  # other types apparently, see https://docs.aws.amazon.com/transcribe/latest/dg/streaming-http2.html
+  # as an example.
+  defp encode_header_value(value, type) when type in [6, 7, 8, 9] do
+    <<type::integer-size(8), byte_size(value)::size(16)>> <> value
+  end
+
+  defp encode_header_value(value, _type) do
+    <<4::size(8), value::size(32)>>
   end
 
   @doc """
