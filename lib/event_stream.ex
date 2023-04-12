@@ -38,13 +38,7 @@ defmodule EventStream do
   """
   @spec encode!(binary(), headers()) :: binary()
   def encode!(payload, headers \\ []) do
-    headers_binary =
-      Enum.reduce(headers, <<>>, fn header, acc ->
-        {key, value, type} = inject_header_value_type(header)
-        key = to_string(key)
-        acc <> <<String.length(key)::size(8)>> <> key <> encode_header_value(value, type)
-      end)
-
+    headers_binary = encode_headers!(headers)
     header_length = byte_size(headers_binary)
 
     total_length = 4 + 4 + 4 + header_length + byte_size(payload) + 4
@@ -55,6 +49,14 @@ defmodule EventStream do
     message_crc = :erlang.crc32(message_without_crc)
 
     message_without_crc <> <<message_crc::size(32)>>
+  end
+
+  def encode_headers!(headers) do
+    Enum.reduce(headers, <<>>, fn header, acc ->
+      {key, value, type} = inject_header_value_type(header)
+      key = to_string(key)
+      acc <> <<String.length(key)::size(8)>> <> key <> encode_header_value(value, type)
+    end)
   end
 
   defp inject_header_value_type(header = {_, _, _}), do: header
@@ -85,11 +87,11 @@ defmodule EventStream do
   end
 
   defp encode_header_value(value, :byte_array) do
-    <<6::integer-size(8), byte_size(value)::size(16)>> <> value
+    <<6::integer-size(8), byte_size(value)::big-signed-size(16), value::binary>>
   end
 
   defp encode_header_value(value, :string) do
-    <<7::integer-size(8), byte_size(value)::size(16)>> <> value
+    <<7::integer-size(8), byte_size(value)::size(16), value::binary>>
   end
 
   defp encode_header_value(value, :timestamp) do
