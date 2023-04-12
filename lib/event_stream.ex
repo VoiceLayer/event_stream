@@ -1,5 +1,15 @@
 defmodule EventStream do
-  @type header_value_type :: pos_integer()
+  @type(
+    header_value_type :: :boolean,
+    :byte,
+    :short,
+    :integer,
+    :long,
+    :byte_array,
+    :string,
+    :timestamp,
+    :uuid
+  )
   @type header :: {binary(), any()} | {binary(), any(), header_value_type()}
   @type headers :: [header]
 
@@ -48,28 +58,47 @@ defmodule EventStream do
   end
 
   defp inject_header_value_type(header = {_, _, _}), do: header
+  defp inject_header_value_type({key, value}), do: {key, value, :string}
 
-  defp inject_header_value_type({key, value}) do
-    type =
-      cond do
-        is_number(value) -> 4
-        true -> 7
-      end
-
-    {key, value, type}
+  defp encode_header_value(true, :boolean) do
+    <<0::integer-size(8)>>
   end
 
-  # https://docs.aws.amazon.com/transcribe/latest/dg/streaming-setting-up.html#streaming-event-stream
-  # Docs say that "Value string byte length: The byte length of the header value string".
-  # The explicit type for strings is 7, but specifying the length is required also for these
-  # other types apparently, see https://docs.aws.amazon.com/transcribe/latest/dg/streaming-http2.html
-  # as an example.
-  defp encode_header_value(value, type) when type in [6, 7, 8, 9] do
-    <<type::integer-size(8), byte_size(value)::size(16)>> <> value
+  defp encode_header_value(false, :boolean) do
+    <<1::integer-size(8)>>
   end
 
-  defp encode_header_value(value, _type) do
-    <<4::size(8), value::size(32)>>
+  defp encode_header_value(value, :byte) do
+    <<2::integer-size(8), value::big-signed-integer-size(8)>>
+  end
+
+  defp encode_header_value(value, :short) do
+    <<3::integer-size(8), value::big-signed-integer-size(16)>>
+  end
+
+  defp encode_header_value(value, :integer) do
+    <<4::integer-size(8), value::big-signed-integer-size(32)>>
+  end
+
+  defp encode_header_value(value, :long) do
+    <<5::integer-size(8), value::big-signed-integer-size(64)>>
+  end
+
+  defp encode_header_value(value, :byte_array) do
+    <<6::integer-size(8), byte_size(value)::size(16)>> <> value
+  end
+
+  defp encode_header_value(value, :string) do
+    <<7::integer-size(8), byte_size(value)::size(16)>> <> value
+  end
+
+  defp encode_header_value(value, :timestamp) do
+    value = DateTime.to_unix(value, :millisecond)
+    <<8::integer-size(8), value::big-signed-integer-size(64)>>
+  end
+
+  defp encode_header_value(value, :uuid) do
+    <<9::integer-size(8), value::size(16)>>
   end
 
   @doc """
@@ -88,7 +117,7 @@ defmodule EventStream do
       ...> 105, 111, 110, 47, 106, 115, 111, 110, 123, 34, 102, 111, 111, 34, 58, 32, 34,
       ...> 98, 97, 114, 34, 125, 111, 162, 191, 59>>
       ...> EventStream.decode!(data)
-      {:ok, [{"content-type", "application/json"}], ~s/{"foo": "bar"}/}
+      {:ok, [{"content-type", "application/json", :string}], ~s/{"foo": "bar"}/}
   """
   def decode!(event_stream_message) do
     <<total_length::size(32), header_length::size(32), _prelude_crc::size(32),
@@ -104,19 +133,52 @@ defmodule EventStream do
 
   defp decode_headers(<<>>, acc), do: Enum.reverse(acc)
 
-  defp decode_headers(
-         <<name_length::size(8), name::binary-size(name_length), 7::size(8),
-           value_length::size(16), value::binary-size(value_length), rest::binary>>,
-         acc
-       ) do
-    decode_headers(rest, [{name, value} | acc])
+  defp decode_headers(<<name_length::size(8), name::binary-size(name_length), rest::binary>>, acc) do
+    {value, type, rest} = decode_header_value(rest)
+    decode_headers(rest, [{name, value, type} | acc])
   end
 
-  defp decode_headers(
-         <<name_length::size(8), name::binary-size(name_length), 4::size(8), value::size(32),
-           rest::binary>>,
-         acc
+  defp decode_header_value(<<0::size(8), rest::binary>>) do
+    {true, :boolean, rest}
+  end
+
+  defp decode_header_value(<<1::size(8), rest::binary>>) do
+    {false, :boolean, rest}
+  end
+
+  defp decode_header_value(<<2::size(8), value::big-signed-integer-size(8), rest::binary>>) do
+    {value, :byte, rest}
+  end
+
+  defp decode_header_value(<<3::size(8), value::big-signed-integer-size(16), rest::binary>>) do
+    {value, :short, rest}
+  end
+
+  defp decode_header_value(<<4::size(8), value::big-signed-integer-size(32), rest::binary>>) do
+    {value, :integer, rest}
+  end
+
+  defp decode_header_value(<<5::size(8), value::big-signed-integer-size(64), rest::binary>>) do
+    {value, :long, rest}
+  end
+
+  defp decode_header_value(
+         <<6::size(8), value_length::size(16), value::binary-size(value_length), rest::binary>>
        ) do
-    decode_headers(rest, [{name, value} | acc])
+    {value, :byte_array, rest}
+  end
+
+  defp decode_header_value(
+         <<7::size(8), value_length::size(16), value::binary-size(value_length), rest::binary>>
+       ) do
+    {value, :string, rest}
+  end
+
+  defp decode_header_value(<<8::size(8), value::big-signed-integer-size(64), rest::binary>>) do
+    {DateTime.from_unix!(value, :millisecond), :timestamp, rest}
+  end
+
+  defp decode_header_value(<<9::size(8), value::binary-size(16), rest::binary>>) do
+    {value, :uuid, rest}
   end
 end
