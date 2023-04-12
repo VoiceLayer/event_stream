@@ -1,5 +1,6 @@
 # Tests taken from
 # https://github.com/awslabs/aws-c-event-stream/blob/3bc33662f9ccff4f4cbcf9509cc78c26e022fde0/tests/message_serializer_test.c
+# https://github.com/mildsunrise/a4s/blob/master/test/events.test.ts
 defmodule EventStreamTest do
   alias EventStream
   use ExUnit.Case
