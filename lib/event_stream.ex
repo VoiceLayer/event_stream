@@ -94,6 +94,12 @@ defmodule EventStream do
     <<7::integer-size(8), byte_size(value)::size(16), value::binary>>
   end
 
+  defp encode_header_value({{year, month, day}, {hour, minute, second}}, :timestamp) do
+    Date.new!(year, month, day)
+    |> DateTime.new!(Time.new!(hour, minute, second))
+    |> encode_header_value(:timestamp)
+  end
+
   defp encode_header_value(value, :timestamp) do
     value = DateTime.to_unix(value, :millisecond)
     <<8::integer-size(8), value::big-signed-integer-size(64)>>
